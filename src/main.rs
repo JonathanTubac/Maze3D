@@ -13,6 +13,12 @@ use std::f32::consts::PI;
 const BLOCK_SIZE: usize = 40;
 /// Rayos del abanico en la vista 2D. En 3D se lanza uno por columna.
 const NUM_RAYS_2D: usize = 120;
+/// Rayos del abanico dibujado en el minimapa (menos, es más chico).
+const NUM_RAYS_MINIMAP: usize = 40;
+/// Qué tanto se encoge el mapa al dibujarlo como minimapa.
+const MINIMAP_SCALE: f32 = 0.22;
+/// Separación del minimapa respecto a la esquina de la pantalla.
+const MINIMAP_MARGIN: i32 = 12;
 
 /// Vista activa: el mapa desde arriba o la proyección desde los ojos del jugador.
 #[derive(Clone, Copy, PartialEq)]
@@ -135,10 +141,76 @@ fn render_world3d(framebuffer: &mut Framebuffer, maze: &Maze, player: &Player) {
     }
 }
 
-fn render(framebuffer: &mut Framebuffer, maze: &Maze, player: &Player, mode: Mode) {
+/// El mismo mapa 2D pero encogido y en la esquina, encima de la vista 3D.
+fn render_minimap(framebuffer: &mut Framebuffer, maze: &Maze, player: &Player) {
+    let block = ((BLOCK_SIZE as f32) * MINIMAP_SCALE).round().max(2.0) as i32;
+    // Factor para pasar de pixeles del mundo a pixeles del minimapa.
+    let scale = block as f32 / BLOCK_SIZE as f32;
+    let ox = MINIMAP_MARGIN;
+    let oy = MINIMAP_MARGIN;
+
+    // Fondo opaco: si no, la vista 3D se ve por debajo de los pasillos.
+    let w = maze.width() as i32 * block;
+    let h = maze.height() as i32 * block;
+    framebuffer.set_current_color(Color::new(15, 15, 22, 255));
+    framebuffer.fill_rect(ox - 3, oy - 3, w + 6, h + 6);
+
+    for y in 0..maze.height() {
+        for x in 0..maze.width() {
+            let color = if maze.is_wall(x, y) {
+                Color::new(80, 110, 200, 255)
+            } else if maze.get(x, y) == 'g' {
+                Color::new(60, 200, 100, 255)
+            } else {
+                continue;
+            };
+            framebuffer.set_current_color(color);
+            framebuffer.fill_rect(ox + x as i32 * block, oy + y as i32 * block, block, block);
+        }
+    }
+
+    // Los rayos se lanzan en coordenadas del mundo y se dibujan escalados,
+    // por eso aquí cast_ray va con draw_line en false.
+    for i in 0..NUM_RAYS_MINIMAP {
+        let a = ray_angle(player, i, NUM_RAYS_MINIMAP);
+        let hit = cast_ray(framebuffer, maze, player, a, BLOCK_SIZE, false);
+
+        framebuffer.set_current_color(Color::new(230, 230, 240, 255));
+        let (cos, sin) = (a.cos(), a.sin());
+        let mut d = 0.0;
+        while d < hit.distance {
+            let px = ox + ((player.pos.x + d * cos) * scale) as i32;
+            let py = oy + ((player.pos.y + d * sin) * scale) as i32;
+            framebuffer.set_pixel(px, py);
+            d += 1.0;
+        }
+    }
+
+    let dot = (block / 2).max(3);
+    framebuffer.set_current_color(Color::new(255, 220, 0, 255));
+    framebuffer.fill_rect(
+        ox + (player.pos.x * scale) as i32 - dot / 2,
+        oy + (player.pos.y * scale) as i32 - dot / 2,
+        dot,
+        dot,
+    );
+}
+
+fn render(
+    framebuffer: &mut Framebuffer,
+    maze: &Maze,
+    player: &Player,
+    mode: Mode,
+    show_minimap: bool,
+) {
     match mode {
         Mode::Map2D => render_map2d(framebuffer, maze, player),
-        Mode::World3D => render_world3d(framebuffer, maze, player),
+        Mode::World3D => {
+            render_world3d(framebuffer, maze, player);
+            if show_minimap {
+                render_minimap(framebuffer, maze, player);
+            }
+        }
     }
 }
 
@@ -161,7 +233,8 @@ fn main() {
 
     let mut framebuffer = Framebuffer::new(width, height);
     framebuffer.set_background_color(Color::new(25, 25, 35, 255));
-    let mut mode = Mode::Map2D;
+    let mut mode = Mode::World3D;
+    let mut show_minimap = true;
 
     println!(
         "Jugador en celda {:?}, meta en {:?}, fov {:.2} rad",
@@ -169,7 +242,9 @@ fn main() {
         maze.goal(),
         player.fov
     );
-    println!("W/S: avanzar | A/D: girar | M: cambiar 2D/3D | F1: guardar maze.png");
+    println!(
+        "W/S: avanzar | A/D: girar | M: mapa completo | N: minimapa | F1: guardar maze.png"
+    );
 
     while !window.window_should_close() {
         process_events(&mut player, &window, &maze, BLOCK_SIZE);
@@ -181,8 +256,11 @@ fn main() {
                 Mode::Map2D
             };
         }
+        if window.is_key_pressed(KeyboardKey::KEY_N) {
+            show_minimap = !show_minimap;
+        }
 
-        render(&mut framebuffer, &maze, &player, mode);
+        render(&mut framebuffer, &maze, &player, mode, show_minimap);
 
         if window.is_key_pressed(KeyboardKey::KEY_F1) {
             framebuffer.render_to_file("maze.png");
