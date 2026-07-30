@@ -38,6 +38,17 @@ impl Framebuffer {
         }
     }
 
+    /// Rellena un rectángulo de un solo color. Hace lo mismo que llamar
+    /// set_pixel en cada posición, pero en una sola llamada a raylib en vez
+    /// de una por pixel, que es lo que cuesta cuando se redibuja cada frame.
+    pub fn fill_rect(&mut self, x: i32, y: i32, width: i32, height: i32) {
+        if width <= 0 || height <= 0 {
+            return;
+        }
+        self.color_buffer
+            .draw_rectangle(x, y, width, height, self.current_color);
+    }
+
     /// Guarda el contenido actual del framebuffer como imagen.
     pub fn render_to_file(&self, path: &str) {
         self.color_buffer.export_image(path);
