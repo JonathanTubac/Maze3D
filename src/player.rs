@@ -1,4 +1,13 @@
+use crate::maze::Maze;
 use raylib::prelude::*;
+use std::f32::consts::PI;
+
+/// Pixeles que avanza el jugador por frame.
+const MOVE_SPEED: f32 = 4.0;
+/// Radianes que gira la cámara por frame.
+const ROTATION_SPEED: f32 = PI / 60.0;
+/// Radio del jugador para colisiones: evita que el centro se pegue a la pared.
+const RADIUS: f32 = 8.0;
 
 /// El jugador es el punto de vista del mundo: dónde está y hacia dónde ve.
 pub struct Player {
@@ -26,5 +35,66 @@ impl Player {
             a,
             fov,
         )
+    }
+}
+
+/// ¿Cabe el jugador con centro en (x, y)? Revisa las cuatro esquinas de su
+/// caja, así no se mete de lado a una pared.
+fn is_free(maze: &Maze, x: f32, y: f32, block_size: usize) -> bool {
+    for (dx, dy) in [
+        (-RADIUS, -RADIUS),
+        (RADIUS, -RADIUS),
+        (-RADIUS, RADIUS),
+        (RADIUS, RADIUS),
+    ] {
+        let px = x + dx;
+        let py = y + dy;
+        if px < 0.0 || py < 0.0 {
+            return false;
+        }
+        if maze.is_wall(px as usize / block_size, py as usize / block_size) {
+            return false;
+        }
+    }
+    true
+}
+
+/// W/S avanzan y retroceden en la dirección de vista, A/D giran la cámara.
+pub fn process_events(
+    player: &mut Player,
+    window: &RaylibHandle,
+    maze: &Maze,
+    block_size: usize,
+) {
+    if window.is_key_down(KeyboardKey::KEY_A) {
+        player.a -= ROTATION_SPEED;
+    }
+    if window.is_key_down(KeyboardKey::KEY_D) {
+        player.a += ROTATION_SPEED;
+    }
+    // Mantener el ángulo en [0, 2PI) para que no crezca sin límite.
+    player.a = player.a.rem_euclid(2.0 * PI);
+
+    let mut step = 0.0;
+    if window.is_key_down(KeyboardKey::KEY_W) {
+        step += MOVE_SPEED;
+    }
+    if window.is_key_down(KeyboardKey::KEY_S) {
+        step -= MOVE_SPEED;
+    }
+    if step == 0.0 {
+        return;
+    }
+
+    let dx = step * player.a.cos();
+    let dy = step * player.a.sin();
+
+    // Cada eje se prueba por separado: si uno choca, el otro todavía puede
+    // avanzar y el jugador se desliza sobre la pared en vez de trabarse.
+    if is_free(maze, player.pos.x + dx, player.pos.y, block_size) {
+        player.pos.x += dx;
+    }
+    if is_free(maze, player.pos.x, player.pos.y + dy, block_size) {
+        player.pos.y += dy;
     }
 }

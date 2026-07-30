@@ -3,10 +3,10 @@ mod framebuffer;
 mod maze;
 mod player;
 
-use caster::cast_ray;
+use caster::{Intersect, cast_ray};
 use framebuffer::Framebuffer;
 use maze::{Maze, load_maze};
-use player::Player;
+use player::{Player, process_events};
 use raylib::prelude::*;
 use std::f32::consts::PI;
 
@@ -54,7 +54,7 @@ fn render_player(framebuffer: &mut Framebuffer, player: &Player) {
     );
 }
 
-fn render(framebuffer: &mut Framebuffer, maze: &Maze, player: &Player) {
+fn render(framebuffer: &mut Framebuffer, maze: &Maze, player: &Player) -> Intersect {
     framebuffer.clear();
     render_maze(framebuffer, maze);
 
@@ -62,10 +62,7 @@ fn render(framebuffer: &mut Framebuffer, maze: &Maze, player: &Player) {
     let hit = cast_ray(framebuffer, maze, player, player.a, BLOCK_SIZE, true);
     render_player(framebuffer, player);
 
-    println!(
-        "Mirando a {:.2} rad, pared '{}' a {:.1} px",
-        player.a, hit.impact, hit.distance
-    );
+    hit
 }
 
 fn main() {
@@ -77,7 +74,7 @@ fn main() {
     let (start_x, start_y) = maze
         .player_start()
         .expect("El laberinto no tiene una 'p' para el jugador");
-    let player = Player::at_cell(start_x, start_y, BLOCK_SIZE, PI / 3.0, PI / 3.0);
+    let mut player = Player::at_cell(start_x, start_y, BLOCK_SIZE, PI / 3.0, PI / 3.0);
 
     let (mut window, thread) = raylib::init()
         .size(width, height)
@@ -87,7 +84,6 @@ fn main() {
 
     let mut framebuffer = Framebuffer::new(width, height);
     framebuffer.set_background_color(Color::new(25, 25, 35, 255));
-    render(&mut framebuffer, &maze, &player);
 
     println!(
         "Jugador en celda {:?}, meta en {:?}, fov {:.2} rad",
@@ -95,12 +91,21 @@ fn main() {
         maze.goal(),
         player.fov
     );
+    println!("W/S: avanzar y retroceder | A/D: girar la camara | F1: guardar maze.png");
 
     while !window.window_should_close() {
-        if window.is_key_pressed(KeyboardKey::KEY_S) {
+        process_events(&mut player, &window, &maze, BLOCK_SIZE);
+
+        let hit = render(&mut framebuffer, &maze, &player);
+
+        if window.is_key_pressed(KeyboardKey::KEY_F1) {
             framebuffer.render_to_file("maze.png");
-            println!("Captura guardada en maze.png");
+            println!(
+                "Captura en maze.png | pos ({:.0}, {:.0}) a {:.2} rad -> pared '{}' a {:.1} px",
+                player.pos.x, player.pos.y, player.a, hit.impact, hit.distance
+            );
         }
+
         framebuffer.swap_buffers(&mut window, &thread);
     }
 }
